@@ -47,13 +47,15 @@ export class DustMotes {
         uAmount: { value: 1 },
         uSize: { value: 20 },
         uPixelRatio: { value: 1 },
-        uVolume: { value: VOLUME.clone() }
+        uVolume: { value: VOLUME.clone() },
+        uAnchor: { value: new Vector3() }
       },
       vertexShader: /* glsl */ `
         uniform float uTime;
         uniform float uSize;
         uniform float uPixelRatio;
         uniform vec3 uVolume;
+        uniform vec3 uAnchor;
         attribute float aSeed;
         varying float vAlpha;
         varying float vSeed;
@@ -63,11 +65,25 @@ export class DustMotes {
           vSeed = aSeed;
           vec3 p = position;
 
+          // The volume is parented to the character so there are always motes
+          // around them. On its own that glues every mote to the body and
+          // cancels the one parallax cue the scene has — walking then looks
+          // exactly like the camera panning. Undo the follow here and wrap the
+          // mote back into the box: it holds its world position and streams
+          // past as you walk, re-entering on the far side once it drops out of
+          // range. mod() is floor-based in GLSL, so negatives wrap correctly.
+          p.xz -= uAnchor.xz;
+          p.xz = mod(p.xz + uVolume.xz * 0.5, uVolume.xz) - uVolume.xz * 0.5;
+
           // Slow buoyant drift with a curl-noise wobble.
           float t = uTime * (0.05 + aSeed * 0.06);
           p.y += mod(uTime * (0.12 + aSeed * 0.25), uVolume.y);
           p.y = mod(p.y, uVolume.y);
-          p += curlNoise(p * 0.06 + vec3(0.0, t, 0.0)) * 1.35;
+          // Sample the wobble at the mote's world home rather than at the
+          // wrapped local position: otherwise walking drags the whole noise
+          // field along behind you and puts back a slice of the very motion
+          // the wrap above exists to remove.
+          p += curlNoise(vec3(position.x, p.y, position.z) * 0.06 + vec3(0.0, t, 0.0)) * 1.35;
 
           vec4 mv = modelViewMatrix * vec4(p, 1.0);
           float dist = -mv.z;
@@ -75,6 +91,11 @@ export class DustMotes {
           // Twinkle + distance falloff.
           float twinkle = 0.55 + 0.45 * sin(uTime * (1.1 + aSeed * 2.6) + aSeed * 40.0);
           vAlpha = twinkle * smoothstep(90.0, 12.0, dist) * smoothstep(0.5, 4.0, dist);
+
+          // Fade a mote out as it nears the wrap boundary, so the teleport
+          // across the volume never shows as a pop.
+          float edge = max(abs(p.x) / (uVolume.x * 0.5), abs(p.z) / (uVolume.z * 0.5));
+          vAlpha *= 1.0 - smoothstep(0.72, 1.0, edge);
 
           gl_Position = projectionMatrix * mv;
           gl_PointSize = uSize * uPixelRatio * (0.35 + aSeed * 0.9) / max(dist, 1.0);
@@ -113,7 +134,12 @@ export class DustMotes {
     this.material.uniforms.uTime.value = elapsed;
     this.material.uniforms.uAmount.value = settings.environment.dustAmount;
     // Keep the volume centred on the action without re-uploading positions.
-    if (anchor) this.points.position.set(anchor.x, 0, anchor.z);
+    // The shader subtracts the same anchor back off again so the motes stay
+    // put in the world while the box that holds them travels.
+    if (anchor) {
+      this.points.position.set(anchor.x, 0, anchor.z);
+      this.material.uniforms.uAnchor.value.set(anchor.x, 0, anchor.z);
+    }
   }
 
   dispose() {
