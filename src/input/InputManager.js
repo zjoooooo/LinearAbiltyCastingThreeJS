@@ -30,8 +30,16 @@ export class InputManager extends EventEmitter {
     window.addEventListener('pointermove', this._onPointerMove);
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
+    window.addEventListener('blur', this._onBlur);
     this.dom.addEventListener('contextmenu', this._onContextMenu);
   }
+
+  /**
+   * A key still down when the window loses focus never delivers its keyup, so
+   * the held set would keep reporting it — and the character would walk off on
+   * its own the moment you tabbed away. Drop everything instead.
+   */
+  _onBlur = () => this.keys.clear();
 
   _onContextMenu = (event) => event.preventDefault();
 
@@ -119,11 +127,37 @@ export class InputManager extends EventEmitter {
     this.keys.delete(event.code);
   };
 
+  /**
+   * The movement axis currently held, as state rather than an event.
+   *
+   * Holding a key is a condition, not something that happens once, so this is
+   * polled per frame instead of being emitted through `action` — a keydown
+   * fires once and repeats are dropped, which is the wrong shape for walking.
+   *
+   * `y` is forward and `x` is right, both -1..1, in the caller's own frame of
+   * reference: this knows nothing about the camera. Diagonals are normalised so
+   * running at 45° is not faster than running along an axis.
+   *
+   * @param {import('three').Vector2} out written in place and returned
+   */
+  moveAxis(out) {
+    const held = (...codes) => (codes.some((code) => this.keys.has(code)) ? 1 : 0);
+
+    out.set(
+      held('KeyD', 'ArrowRight') - held('KeyA', 'ArrowLeft'),
+      held('KeyW', 'ArrowUp') - held('KeyS', 'ArrowDown')
+    );
+
+    if (out.lengthSq() > 1) out.normalize();
+    return out;
+  }
+
   dispose() {
     this.dom.removeEventListener('pointerdown', this._onPointerDown);
     window.removeEventListener('pointermove', this._onPointerMove);
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
+    window.removeEventListener('blur', this._onBlur);
     this.dom.removeEventListener('contextmenu', this._onContextMenu);
     this.clear();
   }

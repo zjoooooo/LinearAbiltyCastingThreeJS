@@ -12,6 +12,7 @@ import {
 import { settings, CAST_ANIMATIONS } from '../config/settings.js';
 import { LAYER } from '../core/Layers.js';
 import { disposeObject } from '../utils/dispose.js';
+import { clamp, damp } from '../utils/math.js';
 
 const CHARACTER_URL = './models/Idle.fbx';
 /** This export carries no material, so the skin ships beside it as a file. */
@@ -26,7 +27,7 @@ const TARGET_HEIGHT = 1.78;
 /**
  * Loads the rigged FBX, normalises it for the scene and drives its animation.
  *
- * The character never leaves the spot — it breathes on a loop, turns to face
+ * The character breathes on a loop, walks where you steer it, turns to face
  * where you are aiming, and throws one of the cast clips when you fire. Those
  * clips ship as separate Mixamo exports of the *same* skeleton, so only their
  * `AnimationClip` is kept: the mixer binds tracks by bone name, which is all
@@ -35,6 +36,12 @@ const TARGET_HEIGHT = 1.78;
  * Which clip an ability throws is `settings[element].castAnim` — a per-ability
  * choice, editable live, which is why `playCast` takes the name each time
  * rather than caching one.
+ *
+ * Note there is no locomotion clip on disk — the rig ships an idle and three
+ * casts, nothing else — so `move` carries the walk entirely in the transform:
+ * position, heading, and a lean into the run. The legs keep playing the idle
+ * underneath. Drop a walk cycle in beside the casts and this is where it would
+ * be blended in against `speed`.
  */
 export class CharacterController {
   constructor(environment) {
@@ -70,6 +77,13 @@ export class CharacterController {
     /** 0..1 lunge envelope, decays on its own after `castLunge()`. */
     this._lunge = 0;
     this._rightAxis = new Vector3(1, 0, 0);
+
+    /** World-space walk velocity on XZ; y stays 0, the character does not leave the floor. */
+    this.velocity = new Vector3();
+    /** Radians the body is currently leaning into its own run. */
+    this._moveLean = 0;
+    this._desiredVelocity = new Vector3();
+    this._bodyForward = new Vector3();
   }
 
   /**
@@ -319,6 +333,64 @@ export class CharacterController {
   }
 
   /**
+   * Walk the body one step along a world-space direction.
+   *
+   * `direction` is where the player is pushing, already resolved into world
+   * space by the caller — this controller has no idea a camera exists. Its
+   * length is the throttle: 0 stands still, 1 runs flat out.
+   *
+   * Meant to be driven by *real* time rather than the simulation delta, so you
+   * can still walk around a frozen effect to look at it while paused.
+   *
+   * @param {Vector3} direction on XZ, length 0..1
+   * @param {number} dt
+   */
+  move(direction, dt) {
+    const c = settings.character;
+    const throttle = Math.min(1, Math.hypot(direction.x, direction.z));
+
+    this._desiredVelocity.set(direction.x, 0, direction.z).multiplyScalar(c.walkSpeed);
+
+    // Two eases rather than one: holding a key ramps the body up, letting go
+    // plants it. Which applies is just whether anything is being asked for.
+    const ease = throttle > 0 ? c.walkAccel : c.walkStop;
+    this.velocity.set(
+      damp(this.velocity.x, this._desiredVelocity.x, ease, dt),
+      0,
+      damp(this.velocity.z, this._desiredVelocity.z, ease, dt)
+    );
+
+    this.root.position.x += this.velocity.x * dt;
+    this.root.position.z += this.velocity.z * dt;
+
+    // The floor is a finite plane; keep the character on the part of the world
+    // that is actually drawn.
+    const distance = Math.hypot(this.root.position.x, this.root.position.z);
+    if (distance > c.roamRadius) {
+      const scale = c.roamRadius / distance;
+      this.root.position.x *= scale;
+      this.root.position.z *= scale;
+    }
+
+    // Lean into the run, measured along the body's *own* forward rather than
+    // along the direction of travel: strafing sideways while aiming down the
+    // arrow should not pitch the torso at the floor.
+    this._bodyForward.set(Math.sin(this.facing), 0, Math.cos(this.facing));
+    const forward = this.velocity.dot(this._bodyForward) / Math.max(0.001, c.walkSpeed);
+    this._moveLean = damp(this._moveLean, clamp(forward, -1, 1) * c.walkLean, 0.0001, dt);
+  }
+
+  /** True once the body is actually travelling, not merely being pushed. */
+  get isMoving() {
+    return this.velocity.lengthSq() > 0.01;
+  }
+
+  /** Heading of travel, radians about world +Y, in the same frame as `facing`. */
+  get heading() {
+    return Math.atan2(this.velocity.x, this.velocity.z);
+  }
+
+  /**
    * Turn toward `yaw` over time rather than snapping.
    * @param {number} rate fraction of the angle gap left after one second
    */
@@ -342,7 +414,15 @@ export class CharacterController {
     this._lunge = 1;
   }
 
-  _applyLunge(dt) {
+  /**
+   * Compose every procedural accent the body carries onto `tilt`.
+   *
+   * The cast lunge and the walk lean are both a pitch about the body's own
+   * right axis, so they are summed into a single rotation here rather than
+   * written one after the other — two components racing to own
+   * `tilt.quaternion` would mean whichever ran last simply erased the other.
+   */
+  _applyBodyAccents(dt) {
     const c = settings.character;
     if (this._lunge > 0) {
       this._lunge = Math.max(0, this._lunge - c.castSettle * dt);
@@ -350,14 +430,16 @@ export class CharacterController {
     // A short overshoot at the front of the envelope reads as a snap rather than
     // a slow bow.
     const envelope = this._lunge * this._lunge * (1 + 0.35 * Math.sin(this._lunge * Math.PI));
-    this.tilt.quaternion.setFromAxisAngle(this._rightAxis, envelope * c.castLean);
+    this.tilt.quaternion.setFromAxisAngle(this._rightAxis, envelope * c.castLean + this._moveLean);
     this.tilt.position.copy(this.forwardAxis).multiplyScalar(-envelope * c.castRecoil);
   }
 
-  /** Put the character back on the floor, upright and facing where it was. */
+  /** Put the character back on the floor, upright, still and facing where it was. */
   resetPlacement() {
     this.root.position.y = 0;
     this._lunge = 0;
+    this._moveLean = 0;
+    this.velocity.set(0, 0, 0);
     this.tilt.quaternion.identity();
     this.tilt.position.set(0, 0, 0);
   }
@@ -366,7 +448,7 @@ export class CharacterController {
     // Driven by the *simulation* delta, and re-applied every frame even at
     // dt = 0: pausing mid-cast holds the lunge, and `castLean` stays a live
     // slider against that frozen pose.
-    this._applyLunge(dt);
+    this._applyBodyAccents(dt);
 
     if (!this.mixer) return;
 

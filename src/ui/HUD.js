@@ -26,7 +26,7 @@ export class HUD {
     root.innerHTML = `
       <div class="hud__panel hud__title">
         Elemental Sandbox
-        <span data-blurb>Press Q, E, R, F, V or X, aim, click to cast.</span>
+        <span data-blurb>WASD to walk. Press Q, E, R, F, V or X, aim, click to cast.</span>
       </div>
 
       <div class="hud__panel hud__stats">
@@ -41,7 +41,8 @@ export class HUD {
         <div><strong>R</strong> — Cinder Fall &nbsp; <strong>F</strong> — Nova Beam</div>
         <div><strong>V</strong> — Voltaic Snare &nbsp; <strong>X</strong> — Glacial Crown</div>
         <div class="hud__help-note">V and X are far casts — aimed with a circle, not an arrow.</div>
-        <div><strong>Move</strong> — aim &nbsp; <strong>Left click</strong> — cast</div>
+        <div><strong>W A S D</strong> — walk, relative to the camera</div>
+        <div><strong>Mouse</strong> — aim &nbsp; <strong>Left click</strong> — cast</div>
         <div><strong>Esc / right click</strong> — cancel the cast</div>
         <div><strong>Right drag</strong> — orbit &nbsp; <strong>Scroll</strong> — zoom</div>
         <div style="margin-top:6px">

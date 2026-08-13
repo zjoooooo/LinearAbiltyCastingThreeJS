@@ -1,4 +1,4 @@
-import { Vector3, MathUtils } from 'three';
+import { Vector2, Vector3, MathUtils } from 'three';
 
 import { Renderer } from './Renderer.js';
 import { Time } from './Time.js';
@@ -33,6 +33,8 @@ import { Editor } from '../ui/Editor.js';
 import { settings, ELEMENTS } from '../config/settings.js';
 
 const HDR_URL = './hdri/spruit_sunrise.hdr';
+
+const UP = new Vector3(0, 1, 0);
 
 /**
  * Application root: owns every subsystem and the frame loop.
@@ -122,6 +124,12 @@ export class App {
     this.selectAbility(ELEMENTS[0], { silent: true });
 
     this._focusPoint = new Vector3();
+
+    /* ---- movement scratch, reused every frame ---- */
+    this._moveAxis = new Vector2();
+    this._moveDir = new Vector3();
+    this._camForward = new Vector3();
+    this._camRight = new Vector3();
   }
 
   /** The ability currently in the slot. */
@@ -219,6 +227,36 @@ export class App {
     this.character.castLunge();
   }
 
+  /**
+   * Turn the movement keys currently held into one step, in the camera's frame.
+   *
+   * W runs away from the camera rather than along a fixed world axis, so the
+   * keys keep meaning the same thing once you have orbited round behind the
+   * character — the alternative is that W walks toward you half the time.
+   */
+  _steer(dt) {
+    const axis = this.input.moveAxis(this._moveAxis);
+
+    // The camera's own facing, flattened onto the floor.
+    this._camForward.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    this._camForward.y = 0;
+    if (this._camForward.lengthSq() < 1e-6) {
+      // Staring straight down: the forward axis has no footprint on the floor
+      // left to steer by, so screen-up stands in for it.
+      this._camForward.set(0, 1, 0).applyQuaternion(this.camera.quaternion);
+      this._camForward.y = 0;
+    }
+    this._camForward.normalize();
+    this._camRight.crossVectors(this._camForward, UP);
+
+    this._moveDir
+      .copy(this._camRight)
+      .multiplyScalar(axis.x)
+      .addScaledVector(this._camForward, axis.y);
+
+    this.character.move(this._moveDir, dt);
+  }
+
   clearEffects() {
     this.aim.cancel();
     this.abilities.clear();
@@ -292,6 +330,13 @@ export class App {
     /* ---- simulation ---- */
     this.renderer.syncSettings();
 
+    // Walking runs on *real* time, like the aim and the camera below it:
+    // pausing freezes the effects, not your ability to walk around and look at
+    // them. Everything downstream — the light focus, the aim origin, the dust,
+    // the camera anchor, the contact shadows — already reads the character's
+    // position, so moving it here is all that is needed for them to follow.
+    this._steer(raw);
+
     this.environment.setFocus(this.character.position.x, this.character.position.z);
     this.environment.update();
 
@@ -300,8 +345,13 @@ export class App {
     this.aim.setOrigin(this.character.position);
     this.aim.update(raw);
 
+    // Aiming owns the heading — you strafe around the arrow rather than
+    // swinging the body off it. Walking only steers the body when no arrow is
+    // out, which is also what keeps the character facing where it is going.
     if (settings.character.turnToAim && this.aim.isArmed) {
       this.character.turnToward(this.aim.facing, settings.character.turnRate, raw);
+    } else if (this.character.isMoving) {
+      this.character.turnToward(this.character.heading, settings.character.turnToMove, raw);
     }
     this.character.update(dt);
 

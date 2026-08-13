@@ -219,7 +219,21 @@ export const settings = {
     turnRate: 0.0002, // fraction of the heading gap left after 1s (lower = snappier)
     castLean: 0.34, // radians the torso pitches forward on release
     castRecoil: 0.16, // metres the body is shoved back
-    castSettle: 2.6 // seconds⁻¹ the lunge decays at
+    castSettle: 2.6, // seconds⁻¹ the lunge decays at
+
+    /* --- walking it around (WASD) --- */
+    // Movement is camera-relative: W always goes away from the camera, so the
+    // keys keep meaning the same thing after you orbit.
+    //
+    // The two eases are "fraction of the speed gap left after 1s", the same
+    // convention as `turnRate` above — smaller is snappier. Stopping is quicker
+    // than starting so the body plants instead of drifting on past the key.
+    walkSpeed: 4.2, // metres/second at full tilt
+    walkAccel: 0.0004, // ease onto walkSpeed while a key is held
+    walkStop: 0.000002, // ease back to standing once they all let go
+    turnToMove: 0.00002, // heading follow while walking; aiming overrides it
+    walkLean: 0.12, // radians the body leans into a full-speed run
+    roamRadius: 90 // metres from the origin the character is kept inside
   },
 
   /* ================================================================== */

@@ -1670,6 +1670,17 @@ export class Editor {
     cast.add(c, 'turnToAim').name('turn to aim');
     R(cast, c, 'turnRate', 0.000001, 0.02, 0.000001, 'turn follow');
 
+    // Walking the body around. The rig ships no locomotion clip, so these
+    // carry the whole walk on their own — `run lean` is what keeps it from
+    // reading as a statue on a conveyor belt.
+    const walk = folder.addFolder('Movement');
+    R(walk, c, 'walkSpeed', 0, 12, 0.1, 'walk speed');
+    R(walk, c, 'walkAccel', 0.000001, 0.02, 0.000001, 'start ease');
+    R(walk, c, 'walkStop', 0.000001, 0.02, 0.000001, 'stop ease');
+    R(walk, c, 'turnToMove', 0.000001, 0.02, 0.000001, 'turn follow');
+    R(walk, c, 'walkLean', 0, 0.6, 0.01, 'run lean');
+    R(walk, c, 'roamRadius', 5, 180, 1, 'roam radius');
+
     // The procedural accent that rides on top of the clip. Zero both leans to
     // let the animation carry the cast on its own.
     const lunge = folder.addFolder('Lunge');
