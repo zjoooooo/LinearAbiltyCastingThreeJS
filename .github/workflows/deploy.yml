@@ -35,12 +35,11 @@ jobs:
       - name: Build
         run: npm run build
 
-      # `enablement` turns Pages on the first time this runs, so the repo does
-      # not need the setting flipped by hand beforehand.
+      # Requires Pages to be on with "GitHub Actions" as the source
+      # (Settings → Pages). Creating the site from here is not an option: the
+      # Actions token cannot do it, it needs repo-admin rights.
       - name: Configure Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
