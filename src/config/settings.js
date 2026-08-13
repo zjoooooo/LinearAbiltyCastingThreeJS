@@ -1737,7 +1737,12 @@ export const settings = {
     maxPolar: 1.32,
     fov: 46,
     targetHeight: 1.35,
-    damping: 0.06,
+    // Fraction of the follow gap left after 1s. Deliberately loose: this is the
+    // leash that lets the character pull ahead in frame while walking — about
+    // 2.4m at full speed rather than being pinned to the centre — which is most
+    // of what makes a walk read as travel instead of a camera pan. It also
+    // paces the drift toward an active cast, so tightening it snaps both back.
+    damping: 0.2,
     autoFrame: 0.35 // how strongly the rig drifts toward an active cast
   },
 
